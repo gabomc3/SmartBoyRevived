@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Hyperkin SmartBoy USB Serial (CDC ACM)
+        VID=0x16D0 (5840 decimal) — MattairTech
+        PID=0x0557 (1367 decimal) — MT-DB-U6 chip
+    -->
+    <usb-device vendor-id="5840" product-id="1367" />
+</resources>
