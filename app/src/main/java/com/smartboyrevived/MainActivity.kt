@@ -37,6 +37,9 @@ class MainActivity : AppCompatActivity() {
         private const val ACTION_USB_PERMISSION = "com.smartboyrevived.USB_PERMISSION"
     }
 
+    // -------------------------------------------------------------------------
+    // USB permission broadcast receiver
+    // -------------------------------------------------------------------------
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
@@ -53,7 +56,7 @@ class MainActivity : AppCompatActivity() {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     device?.let { checkAndConnect(it) }
                 }
-                UsbManager.ACTION_USB_DEVICE_DETACHED,> {
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     if (device?.vendorId == SmartBoyDumper.VENDOR_ID) {
                         closeConnection()
@@ -64,23 +67,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+
         val filter = IntentFilter().apply {
             addAction(ACTION_USB_PERMISSION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMSU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(usbReceiver, filter)
         }
+
         binding.btnDump.setOnClickListener { startDump() }
         binding.btnPlay.setOnClickListener { openInMyOldBoy() }
+
         handleIntent(intent)
         scanForSmartBoy()
     }
@@ -112,11 +122,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkAndConnect(device: UsbDevice) {
         if (device.vendorId != SmartBoyDumper.VENDOR_ID) return
+
         if (usbManager.hasPermission(device)) {
             connectToDevice(device)
         } else {
             val permIntent = PendingIntent.getBroadcast(
-                this, 0, Intent(ACTEION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE
+                this, 0,
+                Intent(ACTION_USB_PERMISSION),
+                PendingIntent.FLAG_IMMUTABLE
             )
             usbManager.requestPermission(device, permIntent)
             setStatus("⏳ Solicitando permiso USB...")
@@ -127,27 +140,40 @@ class MainActivity : AppCompatActivity() {
         try {
             val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
             val driver = drivers.firstOrNull { it.device == device }
-                ?: run { setStatus("⚠️ Driver USB no encontrado"); return }
+                ?: run {
+                    setStatus("⚠️ Driver USB no encontrado (CDC ACM)")
+                    return
+                }
+
             val connection = usbManager.openDevice(driver.device)
-                ?: run { setStatus("⚠️ No se pudo abrir el dispositivo"); return }
+                ?: run {
+                    setStatus("⚠️ No se pudo abrir el dispositivo USB")
+                    return
+                }
+
             val port = driver.ports[0]
             port.open(connection)
             port.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
             // Assert DTR + RTS so the SmartBoy (MattairTech CDC ACM) starts transmitting
             port.dtr = true
             port.rts = true
+
             serialPort = port
             dumper = SmartBoyDumper(port)
+
             setStatus("✅ SmartBoy conectado")
             readCartridgeInfo()
+
         } catch (e: Exception) {
-            setStatus("❌ Error: ${e.message}")
+            setStatus("⍌ Error: ${e.message}")
         }
     }
 
     private fun closeConnection() {
         try { serialPort?.close() } catch (_: Exception) {}
-        serialPort = null; dumper = null; cartInfo = null
+        serialPort = null
+        dumper = null
+        cartInfo = null
         binding.btnDump.isEnabled = false
         binding.layoutCartInfo.visibility = View.GONE
         binding.btnPlay.visibility = View.GONE
@@ -158,9 +184,11 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 setStatus("🔍 Leyendo cartucho...")
-                val info = d.readCartridgeInfo(onNoCart = {
-                    runOnUiThread { setStatus("📭 Inserta un cartucho en el SmartBoy") }
-                })
+                val info = d.readCartridgeInfo(
+                    onNoCart = {
+                        runOnUiThread { setStatus("📭 Inserta un cartucho en el SmartBoy") }
+                    }
+                )
                 cartInfo = info
                 showCartInfo(info)
                 setStatus("✅ Cartucho listo")
@@ -174,19 +202,24 @@ class MainActivity : AppCompatActivity() {
     private fun startDump() {
         val d = dumper ?: return
         val info = cartInfo ?: return
+
         binding.btnDump.isEnabled = false
         binding.btnPlay.visibility = View.GONE
         binding.layoutProgress.visibility = View.VISIBLE
         binding.progressBar.progress = 0
+
         lifecycleScope.launch {
             try {
                 setStatus("📥 Volcando ROM...")
+
                 val romData = d.dumpRom(info) { progress ->
                     binding.progressBar.progress = progress
                     binding.tvProgress.text = "Volcando ROM: $progress%"
                 }
+
                 val filename = d.suggestFilename(info, romData)
                 val uri = saveRomToDownloads(romData, filename)
+
                 if (uri != null) {
                     lastRomUri = uri
                     binding.layoutProgress.visibility = View.GONE
@@ -198,6 +231,7 @@ class MainActivity : AppCompatActivity() {
                     setStatus("❌ Error guardando ROM")
                     binding.btnDump.isEnabled = true
                 }
+
             } catch (e: Exception) {
                 setStatus("❌ Error volcando ROM: ${e.message}")
                 binding.layoutProgress.visibility = View.GONE
@@ -208,51 +242,68 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun saveRomToDownloads(romData: ByteArray, filename: String): Uri? =
         withContext(Dispatchers.IO) {
-            val cv = ContentValues().apply {
+            val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, filename)
                 put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
                 put(MediaStore.Downloads.RELATIVE_PATH, "Download/SmartBoyROMs")
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
-            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
-                ?: return@withContext null
+
+            val resolver = contentResolver
+            val uri = resolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                contentValues
+            ) ?: return@withContext null
+
             try {
-                contentResolver.openOutputStream(uri)?.use { it.write(romData) }
-                cv.clear(); cv.put(MediaStore.Downloads.IS_PENDING, 0)
-                contentResolver.update(uri, cv, null, null)
+                resolver.openOutputStream(uri)?.use { it.write(romData) }
+                contentValues.clear()
+                contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, contentValues, null, null)
                 uri
             } catch (e: Exception) {
-                contentResolver.delete(uri, null, null); null
+                resolver.delete(uri, null, null)
+                null
             }
         }
 
     private fun openInMyOldBoy() {
         val uri = lastRomUri ?: return
-        for (pkg in listOf("com.fastemulator.gbc", "com.fastemulator.gbcfull")) {
+
+        val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfull")
+
+        for (pkg in packages) {
             try {
-                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/octet-stream")
-                    setPackage(pkg); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }); return
+                    setPackage(pkg)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(intent)
+                return
             } catch (_: Exception) {}
         }
+
         try {
-            startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/octet-stream")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, "Abrir ROM con..."))
+            }
+            startActivity(Intent.createChooser(intent, "Abrir ROM con..."))
         } catch (e: Exception) {
             Toast.makeText(this, "My OldBoy! no encontrado", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun setStatus(text: String) { runOnUiThread { binding.tvStatus.text = text } }
+    private fun setStatus(text: String) {
+        runOnUiThread { binding.tvStatus.text = text }
+    }
 
     private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
         runOnUiThread {
             binding.layoutCartInfo.visibility = View.VISIBLE
             binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.numBanks} bancos × 16 KB = ${info.romSizeKb]} KB"
+            binding.tvRomSize.text = "${info.numBanks} bancos × 16 KB = ${info.romSizeKb} KB"
         }
     }
 }
