@@ -44,14 +44,21 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
     }
 
     // -------------------------------------------------------------------------
-    // Read a single byte from the serial port (blocking)
+    // Buffered single-byte reader.
+    // USB CDC ACM sends data in packets (often 2+ bytes at once).
+    // Passing a 1-byte buffer to port.read() causes arraycopy crashes when
+    // the packet contains more than 1 byte.  We read in 512-byte chunks and
+    // queue the bytes so callers still get one byte at a time.
     // -------------------------------------------------------------------------
+    private val readBuffer = ByteArray(512)
+    private val byteQueue = ArrayDeque<Byte>()
+
     private fun readByte(): Byte {
-        val buf = ByteArray(1)
-        while (true) {
-            val n = port.read(buf, READ_TIMEOUT_MS)
-            if (n == 1) return buf[0]
+        while (byteQueue.isEmpty()) {
+            val n = port.read(readBuffer, READ_TIMEOUT_MS)
+            if (n > 0) repeat(n) { i -> byteQueue.addLast(readBuffer[i]) }
         }
+        return byteQueue.removeFirst()
     }
 
     // -------------------------------------------------------------------------
@@ -163,14 +170,4 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
     // -------------------------------------------------------------------------
     // Detect GB vs GBC from ROM header
     // -------------------------------------------------------------------------
-    fun isGameBoy(romData: ByteArray): Boolean {
-        if (romData.size < GB_MAGIC_OFFSET + GB_MAGIC.size) return false
-        return GB_MAGIC.indices.all { romData[GB_MAGIC_OFFSET + it] == GB_MAGIC[it] }
-    }
-
-    fun suggestFilename(info: CartridgeInfo, romData: ByteArray): String {
-        val ext = if (isGameBoy(romData)) "gb" else "gbc"
-        val safeName = info.name.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
-        return "$safeName.$ext"
-    }
-}
+    fun isGameBoy(romData: ByteArray): B
