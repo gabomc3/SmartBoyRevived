@@ -170,4 +170,14 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
     // -------------------------------------------------------------------------
     // Detect GB vs GBC from ROM header
     // -------------------------------------------------------------------------
-    fun isGameBoy(romData: ByteArray): B
+    fun isGameBoy(romData: ByteArray): Boolean {
+        if (romData.size < GB_MAGIC_OFFSET + GB_MAGIC.size) return false
+        return GB_MAGIC.indices.all { romData[GB_MAGIC_OFFSET + it] == GB_MAGIC[it] }
+    }
+
+    fun suggestFilename(info: CartridgeInfo, romData: ByteArray): String {
+        val ext = if (isGameBoy(romData)) "gb" else "gbc"
+        val safeName = info.name.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+        return "$safeName.$ext"
+    }
+}
