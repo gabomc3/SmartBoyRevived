@@ -77,6 +77,7 @@ class MainActivity : AppCompatActivity() {
 
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
 
+        // Register USB events
         val filter = IntentFilter().apply {
             addAction(ACTION_USB_PERMISSION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
@@ -91,7 +92,10 @@ class MainActivity : AppCompatActivity() {
         binding.btnDump.setOnClickListener { startDump() }
         binding.btnPlay.setOnClickListener { openInMyOldBoy() }
 
+        // If launched from USB attach intent, handle it
         handleIntent(intent)
+
+        // Also scan already-connected devices
         scanForSmartBoy()
     }
 
@@ -106,6 +110,9 @@ class MainActivity : AppCompatActivity() {
         closeConnection()
     }
 
+    // -------------------------------------------------------------------------
+    // USB detection
+    // -------------------------------------------------------------------------
     private fun handleIntent(intent: Intent) {
         if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
             val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
@@ -136,6 +143,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Serial connection
+    // -------------------------------------------------------------------------
     private fun connectToDevice(device: UsbDevice) {
         try {
             val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
@@ -165,7 +175,7 @@ class MainActivity : AppCompatActivity() {
             readCartridgeInfo()
 
         } catch (e: Exception) {
-            setStatus("⍌ Error: ${e.message}")
+            setStatus("❌ Error: ${e.message}")
         }
     }
 
@@ -179,6 +189,9 @@ class MainActivity : AppCompatActivity() {
         binding.btnPlay.visibility = View.GONE
     }
 
+    // -------------------------------------------------------------------------
+    // Read cartridge info in background
+    // -------------------------------------------------------------------------
     private fun readCartridgeInfo() {
         val d = dumper ?: return
         lifecycleScope.launch {
@@ -199,6 +212,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Dump ROM
+    // -------------------------------------------------------------------------
     private fun startDump() {
         val d = dumper ?: return
         val info = cartInfo ?: return
@@ -240,6 +256,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Save ROM to Downloads folder (Scoped Storage - Android 10+)
+    // -------------------------------------------------------------------------
     private suspend fun saveRomToDownloads(romData: ByteArray, filename: String): Uri? =
         withContext(Dispatchers.IO) {
             val contentValues = ContentValues().apply {
@@ -267,9 +286,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    // -------------------------------------------------------------------------
+    // Launch My OldBoy! with the ROM
+    // -------------------------------------------------------------------------
     private fun openInMyOldBoy() {
         val uri = lastRomUri ?: return
 
+        // My OldBoy! package names (free and paid)
         val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfull")
 
         for (pkg in packages) {
@@ -284,6 +307,7 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {}
         }
 
+        // Fallback: open with any compatible app
         try {
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/octet-stream")
@@ -295,6 +319,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // UI helpers
+    // -------------------------------------------------------------------------
     private fun setStatus(text: String) {
         runOnUiThread { binding.tvStatus.text = text }
     }
