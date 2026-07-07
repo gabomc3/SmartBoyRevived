@@ -46,16 +46,17 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
     // -------------------------------------------------------------------------
     // Buffered single-byte reader.
     // USB CDC ACM sends data in packets (often 2+ bytes at once).
-    // Passing a 1-byte buffer to port.read() causes arraycopy crashes when
-    // the packet contains more than 1 byte.  We read in 512-byte chunks and
+    // Passing a 1-byte buffer causes arraycopy crashes when the packet has
+    // more than 1 byte.  We read in 64-byte chunks (USB full-speed max packet)
+    // with a short timeout so we don't block the IO thread for too long, then
     // queue the bytes so callers still get one byte at a time.
     // -------------------------------------------------------------------------
-    private val readBuffer = ByteArray(512)
+    private val readBuffer = ByteArray(64)
     private val byteQueue = ArrayDeque<Byte>()
 
     private fun readByte(): Byte {
         while (byteQueue.isEmpty()) {
-            val n = port.read(readBuffer, READ_TIMEOUT_MS)
+            val n = port.read(readBuffer, 500)   // 500 ms – short so we retry fast
             if (n > 0) repeat(n) { i -> byteQueue.addLast(readBuffer[i]) }
         }
         return byteQueue.removeFirst()
@@ -177,7 +178,4 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
 
     fun suggestFilename(info: CartridgeInfo, romData: ByteArray): String {
         val ext = if (isGameBoy(romData)) "gb" else "gbc"
-        val safeName = info.name.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
-        return "$safeName.$ext"
-    }
-}
+     
