@@ -8,23 +8,17 @@ import java.io.ByteArrayOutputStream
 /**
  * Handles communication with the Hyperkin SmartBoy over USB CDC ACM serial.
  *
- * Protocol (reverse-engineered from the official app and documented at
- * https://github.com/hadess/smartboy-dumper):
- *
- *  Device continuously sends:  nmGAMENAMErb<banks>  (e.g. "nmTETRISrb16")
+ * Protocol: Device continuously sends: nmGAMENAMErb<banks> (e.g. "nmTETRISrb16")
  *  Host sends "sd" to start dumping.
  *  Device replies: "startrom" + <binary ROM data> + "end"
- *  Optional SRAM follows: "srm" + <SRAM data> + "end"
  *  "nr" means no cartridge inserted.
  */
 class SmartBoyDumper(private val port: UsbSerialPort) {
 
     companion object {
-        private const val BANK_SIZE = 16 * 1024   // 16 KB per bank
+        private const val BANK_SIZE = 16 * 1024
         private const val READ_TIMEOUT_MS = 10_000
         private const val WRITE_TIMEOUT_MS = 2_000
-
-        // GB magic bytes at offset 260 that identify Game Boy (vs Game Boy Color)
         private val GB_MAGIC = byteArrayOf(
             0xCE.toByte(), 0xED.toByte(), 0x66, 0x66,
             0xCC.toByte(), 0x0D, 0x00, 0x0B, 0x03, 0x73,
@@ -33,7 +27,6 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
             0x00, 0x0E
         )
         private const val GB_MAGIC_OFFSET = 260
-
         val VENDOR_ID = 0x16D0
         val PRODUCT_ID = 0x0557
     }
@@ -43,30 +36,17 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
         val romSizeKb: Int get() = numBanks * 16
     }
 
-    // -------------------------------------------------------------------------
-    // Buffered single-byte reader.
-    // USB CDC ACM sends data in packets (often 2+ bytes at once).
-    // Passing a 1-byte buffer causes arraycopy crashes when the packet has
-    // more than 1 byte.  We read in 64-byte chunks (USB full-speed max packet)
-    // with a short timeout so we don't block the IO thread for too long, then
-    // queue the bytes so callers still get one byte at a time.
-    // -------------------------------------------------------------------------
     private val readBuffer = ByteArray(64)
     private val byteQueue = ArrayDeque<Byte>()
 
     private fun readByte(): Byte {
         while (byteQueue.isEmpty()) {
-            val n = port.read(readBuffer, 500)   // 500 ms – short so we retry fast
+            val n = port.read(readBuffer, 500)
             if (n > 0) repeat(n) { i -> byteQueue.addLast(readBuffer[i]) }
         }
         return byteQueue.removeFirst()
     }
 
-    // -------------------------------------------------------------------------
-    // Read bytes until one of the given tags appears at the end of the buffer.
-    // Returns the tag that was found, and leaves 'out' containing everything
-    // *before* the tag.
-    // -------------------------------------------------------------------------
     private fun readUntilTag(out: StringBuilder, tags: List<String>): String {
         val buf = StringBuilder()
         while (true) {
@@ -82,43 +62,37 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Read cartridge info (ROM name + bank count).
-    // The device sends "nm<NAME>rb<BANKS>" in a loop until we respond.
-    // -------------------------------------------------------------------------
+    /**
+     * Bug fix: inner readUntilTag calls consume the next tag (e.g. "nm" after
+     * the bank count). Discarding it causes an infinite loop on "rb" without
+     * ever setting romName. We save it as pendingTag and reuse it next iteration.
+     */
     suspend fun readCartridgeInfo(onNoCart: () -> Unit): CartridgeInfo =
         withContext(Dispatchers.IO) {
             var romName: String? = null
             var numBanks: Int = -1
-
             val stateTags = listOf("nm", "rb", "nr")
-            val buf = StringBuilder()
+            var pendingTag: String? = null
 
             while (romName == null || numBanks < 1) {
-                buf.clear()
-                val tag = readUntilTag(buf, stateTags)
+                val tag = pendingTag ?: run {
+                    val buf = StringBuilder()
+                    readUntilTag(buf, stateTags)
+                }
+                pendingTag = null
 
                 when (tag) {
                     "nm" -> {
-                        // Text that follows "nm" until next tag is the ROM name
                         val nameContent = StringBuilder()
-                        val nextTag = readUntilTag(nameContent, stateTags)
+                        val t = readUntilTag(nameContent, stateTags)
                         romName = nameContent.toString().trim()
-
-                        // Process whatever tag ended the name
-                        when (nextTag) {
-                            "rb" -> {
-                                val bankContent = StringBuilder()
-                                readUntilTag(bankContent, stateTags)
-                                numBanks = bankContent.toString().trim().toIntOrNull() ?: -1
-                            }
-                            "nr" -> onNoCart()
-                        }
+                        pendingTag = t
                     }
                     "rb" -> {
                         val bankContent = StringBuilder()
-                        readUntilTag(bankContent, stateTags)
+                        val t = readUntilTag(bankContent, stateTags)
                         numBanks = bankContent.toString().trim().toIntOrNull() ?: -1
+                        pendingTag = t
                     }
                     "nr" -> onNoCart()
                 }
@@ -127,31 +101,19 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
             CartridgeInfo(romName!!, numBanks)
         }
 
-    // -------------------------------------------------------------------------
-    // Dump the ROM.  Call after readCartridgeInfo().
-    // onProgress receives 0..100.
-    // Returns the raw ROM bytes.
-    // -------------------------------------------------------------------------
     suspend fun dumpRom(
         info: CartridgeInfo,
         onProgress: suspend (Int) -> Unit
     ): ByteArray = withContext(Dispatchers.IO) {
-
-        // Send start-dump command
         port.write("sd".toByteArray(Charsets.US_ASCII), WRITE_TIMEOUT_MS)
-
-        // Wait for "startrom" marker (device may send more nm/rb before responding)
         val markerTags = listOf("startrom", "nr")
         val preBuf = StringBuilder()
         val marker = readUntilTag(preBuf, markerTags)
         if (marker == "nr") error("No cartridge inserted when dump started")
-
-        // Read exactly romSize bytes of binary ROM data
         val romSize = info.romSizeBytes
         val out = ByteArrayOutputStream(romSize)
         var totalRead = 0
         val chunk = ByteArray(4096)
-
         while (totalRead < romSize) {
             val want = minOf(chunk.size, romSize - totalRead)
             val n = port.read(chunk, READ_TIMEOUT_MS)
@@ -164,13 +126,9 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
                 }
             }
         }
-
         out.toByteArray()
     }
 
-    // -------------------------------------------------------------------------
-    // Detect GB vs GBC from ROM header
-    // -------------------------------------------------------------------------
     fun isGameBoy(romData: ByteArray): Boolean {
         if (romData.size < GB_MAGIC_OFFSET + GB_MAGIC.size) return false
         return GB_MAGIC.indices.all { romData[GB_MAGIC_OFFSET + it] == GB_MAGIC[it] }
