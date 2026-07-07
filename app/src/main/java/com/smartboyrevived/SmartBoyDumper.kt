@@ -178,4 +178,7 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
 
     fun suggestFilename(info: CartridgeInfo, romData: ByteArray): String {
         val ext = if (isGameBoy(romData)) "gb" else "gbc"
-     
+        val safeName = info.name.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+        return "$safeName.$ext"
+    }
+}
