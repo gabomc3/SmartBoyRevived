@@ -11,10 +11,12 @@ import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
@@ -22,6 +24,7 @@ import com.smartboyrevived.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,9 +35,11 @@ class MainActivity : AppCompatActivity() {
     private var dumper: SmartBoyDumper? = null
     private var cartInfo: SmartBoyDumper.CartridgeInfo? = null
     private var lastRomUri: Uri? = null
+    private var lastRomFile: File? = null
 
     companion object {
         private const val ACTION_USB_PERMISSION = "com.smartboyrevived.USB_PERMISSION"
+        private const val AUTHORITY = "com.smartboyrevived.fileprovider"
     }
 
     // -------------------------------------------------------------------------
@@ -238,6 +243,11 @@ class MainActivity : AppCompatActivity() {
 
                 if (uri != null) {
                     lastRomUri = uri
+                    // Track file path for FileProvider URI generation
+                    lastRomFile = File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                        "SmartBoyROMs/$filename"
+                    )
                     binding.layoutProgress.visibility = View.GONE
                     binding.btnPlay.visibility = View.VISIBLE
                     binding.btnDump.isEnabled = true
@@ -290,34 +300,66 @@ class MainActivity : AppCompatActivity() {
     // Launch My OldBoy! with the ROM
     // -------------------------------------------------------------------------
     private fun openInMyOldBoy() {
-        val uri = lastRomUri ?: return
-        // Correct package names: paid = gbc, free = gbcfree (NOT gbcfull)
+        val mediaUri = lastRomUri ?: return
         val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfree")
-        for (pkg in packages) {
+
+        // 1) FileProvider URI — preserves .gbc extension in path so My OldBoy! matches it
+        val file = lastRomFile
+        if (file != null && file.exists()) {
+            try {
+                val fpUri = FileProvider.getUriForFile(this, AUTHORITY, file)
+                for (pkg in packages) {
+                    for (mime in listOf("application/octet-stream", "*/*")) {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(fpUri, mime)
+                                setPackage(pkg)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                            return
+                        } catch (_: Exception) {}
+                    }
+                }
+                // Chooser with FileProvider URI
+                try {
+                    startActivity(Intent.createChooser(
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(fpUri, "*/*")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }, "Abrir ROM con..."
+                    ))
+                    return
+                } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
+
+        // 2) MediaStore URI fallback
+  2     for (pkg in packages) {
             for (mime in listOf("application/octet-stream", "*/*")) {
                 try {
-                    val i = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, mime)
+                    startActivity(Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(mediaUri, mime)
                         setPackage(pkg)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(i)
+                    })
                     return
                 } catch (_: Exception) {}
             }
         }
-        // Fallback chooser
-        try {
-            val i = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "*/*")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        // 3) Launch My OldBoy! directly — user navigates to ROM manually
+        for (pkg in packages) {
+            packageManager.getLaunchIntentForPackage(pkg)?.let {
+                Toast.makeText(this, "ROM en Descargas/SmartBoyROMs/ — ábrelo desde My OldBoy!", Toast.LENGTH_LONG).show()
+                startActivity(it)
+                return
             }
-            startActivity(Intent.createChooser(i, "Abrir ROM con..."))
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
+
+        Toast.makeText(this, "My OldBoy! no encontrado. ROM en Descargas/SmartBoyROMs/", Toast.LENGTH_LONG).show()
     }
 
     // -------------------------------------------------------------------------
