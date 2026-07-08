@@ -336,20 +336,32 @@ class MainActivity : AppCompatActivity() {
                     return@withContext "Ruta: $filePath\n\nâ No se pudo leer el archivo:\n${e.message}"
                 }
 
-                val firstHex = bytes.take(8).joinToString(" ") { b -> "%02X".format(b) }
+                val hex0x000 = bytes.take(8).joinToString(" ") { b -> "%02X".format(b) }
+                val hex0x100 = if (bytes.size > 0x107)
+                    bytes.drop(0x100).take(8).joinToString(" ") { b -> "%02X".format(b) }
+                else "N/A"
 
-                // Nintendo logo check at 0x104-0x107
-                val logoOk = bytes.size > 0x107 &&
-                    bytes[0x104] == 0xCE.toByte() && bytes[0x105] == 0xED.toByte() &&
-                    bytes[0x106] == 0x66.toByte() && bytes[0x107] == 0x66.toByte()
+                // Search for Nintendo logo signature CE ED 66 66 anywhere in file
+                val logoSig = byteArrayOf(0xCE.toByte(), 0xED.toByte(), 0x66.toByte(), 0x66.toByte())
+                val logoAt = (0 until bytes.size - 4).firstOrNull { i ->
+                    logoSig.indices.all { j -> bytes[i + j] == logoSig[j] }
+                } ?: -1
+
+                val logoStatus = when {
+                    logoAt == 0x104 -> "â en 0x104 (correcto)"
+                    logoAt > 0x104 -> "en 0x${logoAt.toString(16).uppercase()} (+${logoAt - 0x104} bytes de sobra)"
+                    logoAt in 1 until 0x104 -> "en 0x${logoAt.toString(16).uppercase()} (faltan ${0x104 - logoAt} bytes)"
+                    else -> "â no encontrado en el archivo"
+                }
 
                 val isPow2 = size > 0 && (size and (size - 1)) == 0L
 
                 "Ruta: $filePath\n\n" +
                 "TamaÃ±o: $size B  (${size / 1024} KB)\n" +
-                "Potencia de 2: ${if (isPow2) "â" else "â ($size no es potencia de 2)"}\n" +
-                "Logo Nintendo [0x104]: ${if (logoOk) "â vÃ¡lido" else "â invÃ¡lido (ROM corrupta?)"}\n\n" +
-                "Primeros 8 bytes:\n$firstHex"
+                "Potencia de 2: ${if (isPow2) "â" else "â"}\n" +
+                "Logo Nintendo: $logoStatus\n\n" +
+                "0x000: $hex0x000\n" +
+                "0x100: $hex0x100"
             }
 
             AlertDialog.Builder(this@MainActivity)
@@ -365,6 +377,23 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun doLaunchMyOldBoy(filePath: String?, mediaUri: Uri, packages: List<String>) {
+        // Try 1: MediaStore content:// URI (works on Android 10+ Scoped Storage)
+        // This is the primary method â file:// fails silently on Android 10+ for Downloads
+        for (pkg in packages) {
+            for (mime in listOf("application/octet-stream", "*/*")) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(mediaUri, mime)
+                        setPackage(pkg)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                    return
+                } catch (_: Exception) {}
+            }
+        }
+
+        // Try 2: file:// URI with StrictMode bypass (legacy fallback)
         if (filePath != null) {
             val fileUri = Uri.fromFile(File(filePath))
             val savedPolicy = StrictMode.getVmPolicy()
@@ -382,7 +411,7 @@ class MainActivity : AppCompatActivity() {
                         } catch (_: Exception) {}
                     }
                 }
-                // No specific package matched â show system chooser
+                // No package matched â show system chooser with file://
                 try {
                     startActivity(Intent.createChooser(
                         Intent(Intent.ACTION_VIEW).apply {
@@ -391,44 +420,4 @@ class MainActivity : AppCompatActivity() {
                         }, "Abrir ROM con..."
                     ))
                     return
-                } catch (_: Exception) {}
-            } finally {
-                StrictMode.setVmPolicy(savedPolicy)
-            }
-        }
-
-        // Fallback: MediaStore content:// URI
-        for (pkg in packages) {
-            for (mime in listOf("application/octet-stream", "*/*")) {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(mediaUri, mime)
-                        setPackage(pkg)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    })
-                    return
-                } catch (_: Exception) {}
-            }
-        }
-
-        Toast.makeText(this, "My OldBoy! no encontrado", Toast.LENGTH_LONG).show()
-    }
-
-    // -------------------------------------------------------------------------
-    // UI helpers
-    // -------------------------------------------------------------------------
-    private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
-        runOnUiThread {
-            binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.romSizeKb} KB  (${info.numBanks} bancos)"
-            binding.layoutCartInfo.visibility = View.VISIBLE
-        }
-    }
-
-    private fun setStatus(msg: String) {
-        runOnUiThread {
-            binding.tvStatus.text = msg
-        }
-    }
-}
+                } 
