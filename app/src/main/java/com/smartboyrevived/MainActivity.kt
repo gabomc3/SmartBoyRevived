@@ -329,4 +329,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
         runOnUiThread {
-            binding.layoutCartInfo.visibility = Vie
+            binding.layoutCartInfo.visibility = View.VISIBLE
+            binding.tvRomName.text = info.name
+            binding.tvRomSize.text = "${info.numBanks} bancos × 16 KB = ${info.romSizeKb} KB"
+        }
+    }
+}
