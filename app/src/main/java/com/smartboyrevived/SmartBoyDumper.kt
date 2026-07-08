@@ -28,12 +28,6 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
         val romSizeKb: Int get() = numBanks * 16
     }
 
-    /**
-     * Read cartridge info by accumulating raw bytes and searching for the
-     * nm<NAME>rb<BANKS> pattern using simple string indexOf — much more
-     * robust than the character-by-character tag-matching approach that
-     * could get stuck when starting mid-stream.
-     */
     suspend fun readCartridgeInfo(onNoCart: () -> Unit): CartridgeInfo =
         withContext(Dispatchers.IO) {
             val acc = StringBuilder()
@@ -49,7 +43,6 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
 
                 val s = acc.toString()
 
-                // Search for nm<NAME>rb<DIGITS> pattern
                 var from = 0
                 var found = false
                 while (!found) {
@@ -61,7 +54,6 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
                     val candidateName = s.substring(nmIdx + 2, rbIdx)
                     if (candidateName.isEmpty()) { from = nmIdx + 1; continue }
 
-                    // Read digits after "rb"
                     var bankEnd = rbIdx + 2
                     while (bankEnd < s.length && s[bankEnd].isDigit()) bankEnd++
 
@@ -76,12 +68,10 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
                     from = nmIdx + 1
                 }
 
-                // If no name found yet, check for no-cartridge indicator
                 if (!found && s.contains("nr")) {
                     onNoCart()
                 }
 
-                // Trim accumulator to last 512 chars so it doesn't grow forever
                 if (acc.length > 512) acc.delete(0, acc.length - 512)
             }
 
@@ -94,7 +84,7 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
     ): ByteArray = withContext(Dispatchers.IO) {
         port.write("sd".toByteArray(Charsets.US_ASCII), WRITE_TIMEOUT_MS)
 
-        // Wait for "startrom" marker
+        // Wait for "startrom" marker, accumulating all received bytes
         val preamble = StringBuilder()
         val tmp = ByteArray(256)
         val deadline = System.currentTimeMillis() + 10_000L
@@ -113,9 +103,18 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
 
         val romSize = info.romSizeBytes
         val out = ByteArrayOutputStream(romSize)
-        var totalRead = 0
-        val chunk = ByteArray(4096)
 
+        // FIX: bytes that arrived in the same read as "startrom" but AFTER it
+        // are real ROM bytes. Write them first so the header is not missing.
+        val startromEnd = preamble.indexOf("startrom") + "startrom".length
+        for (i in startromEnd until preamble.length) {
+            if (out.size() >= romSize) break
+            out.write(preamble[i].code and 0xFF)
+        }
+
+        // Read the rest of the ROM from USB
+        var totalRead = out.size()
+        val chunk = ByteArray(4096)
         while (totalRead < romSize) {
             val n = port.read(chunk, READ_TIMEOUT_MS)
             if (n > 0) {
