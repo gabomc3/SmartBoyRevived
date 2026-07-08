@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private var cartInfo: SmartBoyDumper.CartridgeInfo? = null
     private var lastRomUri: Uri? = null
     private var lastRomFile: File? = null
+    private var lastRomFilePath: String? = null
 
     companion object {
         private const val ACTION_USB_PERMISSION = "com.smartboyrevived.USB_PERMISSION"
@@ -55,7 +56,7 @@ class MainActivity : AppCompatActivity() {
                     if (granted && device != null) {
                         connectToDevice(device)
                     } else {
-                        setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Permiso USB denegado")
+                        setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Permiso USB denegado")
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
@@ -66,7 +67,7 @@ class MainActivity : AppCompatActivity() {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     if (device?.vendorId == SmartBoyDumper.VENDOR_ID) {
                         closeConnection()
-                        setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ³ SmartBoy desconectado. Esperando...")
+                        setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ³ SmartBoy desconectado. Esperando...")
                     }
                 }
             }
@@ -145,7 +146,7 @@ class MainActivity : AppCompatActivity() {
                 PendingIntent.FLAG_IMMUTABLE
             )
             usbManager.requestPermission(device, permIntent)
-            setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ³ Solicitando permiso USB...")
+            setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ³ Solicitando permiso USB...")
         }
     }
 
@@ -157,13 +158,13 @@ class MainActivity : AppCompatActivity() {
             val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
             val driver = drivers.firstOrNull { it.device == device }
                 ?: run {
-                    setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ ÃÂÃÂ¯ÃÂÃÂ¸ÃÂÃÂ Driver USB no encontrado (CDC ACM)")
+                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂ¯ÃÂÃÂÃÂÃÂ¸ÃÂÃÂÃÂÃÂ Driver USB no encontrado (CDC ACM)")
                     return
                 }
 
             val connection = usbManager.openDevice(driver.device)
                 ?: run {
-                    setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ ÃÂÃÂ¯ÃÂÃÂ¸ÃÂÃÂ No se pudo abrir el dispositivo USB")
+                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂ¯ÃÂÃÂÃÂÃÂ¸ÃÂÃÂÃÂÃÂ No se pudo abrir el dispositivo USB")
                     return
                 }
 
@@ -177,11 +178,11 @@ class MainActivity : AppCompatActivity() {
             serialPort = port
             dumper = SmartBoyDumper(port)
 
-            setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ SmartBoy conectado")
+            setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ SmartBoy conectado")
             readCartridgeInfo()
 
         } catch (e: Exception) {
-            setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Error: ${e.message}")
+            setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error: ${e.message}")
         }
     }
 
@@ -202,18 +203,18 @@ class MainActivity : AppCompatActivity() {
         val d = dumper ?: return
         lifecycleScope.launch {
             try {
-                setStatus("ÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂ Leyendo cartucho...")
+                setStatus("ÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Leyendo cartucho...")
                 val info = d.readCartridgeInfo(
                     onNoCart = {
-                        runOnUiThread { setStatus("ÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂ­ Inserta un cartucho en el SmartBoy") }
+                        runOnUiThread { setStatus("ÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ­ Inserta un cartucho en el SmartBoy") }
                     }
                 )
                 cartInfo = info
                 showCartInfo(info)
-                setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Cartucho listo")
+                setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Cartucho listo")
                 binding.btnDump.isEnabled = true
             } catch (e: Exception) {
-                setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Error leyendo cartucho: ${e.message}")
+                setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error leyendo cartucho: ${e.message}")
             }
         }
     }
@@ -232,7 +233,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                setStatus("ÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂ¥ Volcando ROM...")
+                setStatus("ÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¥ Volcando ROM...")
 
                 val romData = d.dumpRom(info) { progress ->
                     binding.progressBar.progress = progress
@@ -249,6 +250,12 @@ class MainActivity : AppCompatActivity() {
                     val romCacheDir = File(cacheDir, "SmartBoyROMs").also { it.mkdirs() }
                     val cacheRomFile = File(romCacheDir, filename)
                     withContext(Dispatchers.IO) {
+                        // Get actual file path from MediaStore (may differ from computed path)
+                        lastRomFilePath = try {
+                            contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+                                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                        } catch (_: Exception) { null }
+                        // Copy ROM bytes to app cache for FileProvider access
                         try {
                             contentResolver.openInputStream(uri)?.use { i ->
                                 cacheRomFile.outputStream().use { o -> i.copyTo(o) }
@@ -259,15 +266,15 @@ class MainActivity : AppCompatActivity() {
                     binding.layoutProgress.visibility = View.GONE
                     binding.btnPlay.visibility = View.VISIBLE
                     binding.btnDump.isEnabled = true
-                    setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ ROM guardado: $filename")
+                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ROM guardado: $filename")
                     Toast.makeText(this@MainActivity, "ROM guardado en Descargas", Toast.LENGTH_SHORT).show()
                 } else {
-                    setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Error guardando ROM")
+                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error guardando ROM")
                     binding.btnDump.isEnabled = true
                 }
 
             } catch (e: Exception) {
-                setStatus("ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Error volcando ROM: ${e.message}")
+                setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error volcando ROM: ${e.message}")
                 binding.layoutProgress.visibility = View.GONE
                 binding.btnDump.isEnabled = true
             }
@@ -311,40 +318,20 @@ class MainActivity : AppCompatActivity() {
     private fun openInMyOldBoy() {
         val mediaUri = lastRomUri ?: return
         val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfree")
-        val cacheFile = lastRomFile
-        val filename = cacheFile?.name
 
-        // Tier 1: Component-name launch + FileProvider URI + explicit grantUriPermission
-        // Bypasses intent-filter matching so My OldBoy! receives the content:// URI
-        // even though it only declares file:// filters. Works if My OldBoy! uses
-        // ContentResolver.openInputStream() to read the ROM (modern behavior).
-        if (cacheFile != null && cacheFile.exists()) {
-            try {
-                val fpUri = FileProvider.getUriForFile(this, AUTHORITY, cacheFile)
-                for (pkg in packages) {
-                    try {
-                        val launchIntent = packageManager.getLaunchIntentForPackage(pkg) ?: continue
-                        grantUriPermission(pkg, fpUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        startActivity(Intent(Intent.ACTION_VIEW).apply {
-                            component = launchIntent.component
-                            setDataAndType(fpUri, "application/octet-stream")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                        return
-                    } catch (_: Exception) {}
-                }
-            } catch (_: Exception) {}
+        // Prefer actual MediaStore path; fall back to computed Downloads path
+        val filePath = lastRomFilePath ?: lastRomFile?.name?.let {
+            File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                "SmartBoyROMs/$it"
+            ).absolutePath
         }
 
-        // Tier 2: file:// URI with StrictMode bypass
-        // Works if My OldBoy! has MANAGE_EXTERNAL_STORAGE and can read from Downloads.
-        if (filename != null) {
-            val downloadsFile = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "SmartBoyROMs/$filename"
-            )
-            val fileUri = Uri.fromFile(downloadsFile)
+        if (filePath != null) {
+            // Debug: show the path we're using so we can verify it's correct
+            Toast.makeText(this, "ROM path: $filePath", Toast.LENGTH_LONG).show()
+
+            val fileUri = Uri.fromFile(File(filePath))
             val savedPolicy = StrictMode.getVmPolicy()
             StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
             try {
@@ -375,22 +362,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Tier 3: FileProvider URI via chooser
-        if (cacheFile != null && cacheFile.exists()) {
-            try {
-                val fpUri = FileProvider.getUriForFile(this, AUTHORITY, cacheFile)
-                startActivity(Intent.createChooser(
-                    Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(fpUri, "*/*")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }, "Abrir ROM con..."
-                ))
-                return
-            } catch (_: Exception) {}
-        }
-
-        // Tier 4: MediaStore URI fallback
+        // Fallback: MediaStore URI
         for (pkg in packages) {
             for (mime in listOf("application/octet-stream", "*/*")) {
                 try {
@@ -405,15 +377,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Tier 5: Direct launch + Toast
+        // Last resort: direct launch + Toast with path
         for (pkg in packages) {
             packageManager.getLaunchIntentForPackage(pkg)?.let {
-                Toast.makeText(this, "ROM en Descargas/SmartBoyROMs/ — ábrelo desde My OldBoy!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "ROM en: $filePath
+ábrelo desde My OldBoy!", Toast.LENGTH_LONG).show()
                 startActivity(it)
                 return
             }
         }
-        Toast.makeText(this, "My OldBoy! no encontrado. ROM en Descargas/SmartBoyROMs/", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "My OldBoy! no encontrado", Toast.LENGTH_LONG).show()
     }
 
     // -------------------------------------------------------------------------
@@ -427,7 +400,7 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             binding.layoutCartInfo.visibility = View.VISIBLE
             binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.numBanks} bancos ÃÂÃÂÃÂÃÂ 16 KB = ${info.romSizeKb} KB"
+            binding.tvRomSize.text = "${info.numBanks} bancos ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 16 KB = ${info.romSizeKb} KB"
         }
     }
 }
