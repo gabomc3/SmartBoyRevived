@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
                     if (granted && device != null) {
                         connectToDevice(device)
                     } else {
-                        setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Permiso USB denegado")
+                        setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Permiso USB denegado")
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     if (device?.vendorId == SmartBoyDumper.VENDOR_ID) {
                         closeConnection()
-                        setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ³ SmartBoy desconectado. Esperando...")
+                        setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ³ SmartBoy desconectado. Esperando...")
                     }
                 }
             }
@@ -146,7 +146,7 @@ class MainActivity : AppCompatActivity() {
                 PendingIntent.FLAG_IMMUTABLE
             )
             usbManager.requestPermission(device, permIntent)
-            setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ³ Solicitando permiso USB...")
+            setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ³ Solicitando permiso USB...")
         }
     }
 
@@ -158,13 +158,13 @@ class MainActivity : AppCompatActivity() {
             val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
             val driver = drivers.firstOrNull { it.device == device }
                 ?: run {
-                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂ¯ÃÂÃÂÃÂÃÂ¸ÃÂÃÂÃÂÃÂ Driver USB no encontrado (CDC ACM)")
+                    setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¯ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¸ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Driver USB no encontrado (CDC ACM)")
                     return
                 }
 
             val connection = usbManager.openDevice(driver.device)
                 ?: run {
-                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂ¯ÃÂÃÂÃÂÃÂ¸ÃÂÃÂÃÂÃÂ No se pudo abrir el dispositivo USB")
+                    setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¯ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¸ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ No se pudo abrir el dispositivo USB")
                     return
                 }
 
@@ -178,11 +178,11 @@ class MainActivity : AppCompatActivity() {
             serialPort = port
             dumper = SmartBoyDumper(port)
 
-            setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ SmartBoy conectado")
+            setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ SmartBoy conectado")
             readCartridgeInfo()
 
         } catch (e: Exception) {
-            setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error: ${e.message}")
+            setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error: ${e.message}")
         }
     }
 
@@ -203,18 +203,18 @@ class MainActivity : AppCompatActivity() {
         val d = dumper ?: return
         lifecycleScope.launch {
             try {
-                setStatus("ÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Leyendo cartucho...")
+                setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Leyendo cartucho...")
                 val info = d.readCartridgeInfo(
                     onNoCart = {
-                        runOnUiThread { setStatus("ÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ­ Inserta un cartucho en el SmartBoy") }
+                        runOnUiThread { setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ­ Inserta un cartucho en el SmartBoy") }
                     }
                 )
                 cartInfo = info
                 showCartInfo(info)
-                setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Cartucho listo")
+                setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Cartucho listo")
                 binding.btnDump.isEnabled = true
             } catch (e: Exception) {
-                setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error leyendo cartucho: ${e.message}")
+                setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error leyendo cartucho: ${e.message}")
             }
         }
     }
@@ -233,7 +233,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                setStatus("ÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¥ Volcando ROM...")
+                setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ°ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¥ Volcando ROM...")
 
                 val romData = d.dumpRom(info) { progress ->
                     binding.progressBar.progress = progress
@@ -266,15 +266,15 @@ class MainActivity : AppCompatActivity() {
                     binding.layoutProgress.visibility = View.GONE
                     binding.btnPlay.visibility = View.VISIBLE
                     binding.btnDump.isEnabled = true
-                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ROM guardado: $filename")
+                    setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ ROM guardado: $filename")
                     Toast.makeText(this@MainActivity, "ROM guardado en Descargas", Toast.LENGTH_SHORT).show()
                 } else {
-                    setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error guardando ROM")
+                    setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error guardando ROM")
                     binding.btnDump.isEnabled = true
                 }
 
             } catch (e: Exception) {
-                setStatus("ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error volcando ROM: ${e.message}")
+                setStatus("ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ Error volcando ROM: ${e.message}")
                 binding.layoutProgress.visibility = View.GONE
                 binding.btnDump.isEnabled = true
             }
@@ -380,8 +380,7 @@ class MainActivity : AppCompatActivity() {
         // Last resort: direct launch + Toast with path
         for (pkg in packages) {
             packageManager.getLaunchIntentForPackage(pkg)?.let {
-                Toast.makeText(this, "ROM en: $filePath
-ábrelo desde My OldBoy!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "ROM en: $filePath - ábrelo desde My OldBoy!", Toast.LENGTH_LONG).show()
                 startActivity(it)
                 return
             }
@@ -400,7 +399,7 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             binding.layoutCartInfo.visibility = View.VISIBLE
             binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.numBanks} bancos ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 16 KB = ${info.romSizeKb} KB"
+            binding.tvRomSize.text = "${info.numBanks} bancos ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 16 KB = ${info.romSizeKb} KB"
         }
     }
 }
