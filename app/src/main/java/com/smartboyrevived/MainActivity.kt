@@ -291,31 +291,32 @@ class MainActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
     private fun openInMyOldBoy() {
         val uri = lastRomUri ?: return
-
-        // My OldBoy! package names (free and paid)
-        val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfull")
-
+        // Correct package names: paid = gbc, free = gbcfree (NOT gbcfull)
+        val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfree")
         for (pkg in packages) {
-            try {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "application/octet-stream")
-                    setPackage(pkg)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(intent)
-                return
-            } catch (_: Exception) {}
-        }
-
-        // Fallback: open with any compatible app
-        try {
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/octet-stream")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            for (mime in listOf("application/octet-stream", "*/*")) {
+                try {
+                    val i = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, mime)
+                        setPackage(pkg)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(i)
+                    return
+                } catch (_: Exception) {}
             }
-            startActivity(Intent.createChooser(intent, "Abrir ROM con..."))
+        }
+        // Fallback chooser
+        try {
+            val i = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "*/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(Intent.createChooser(i, "Abrir ROM con..."))
         } catch (e: Exception) {
-            Toast.makeText(this, "My OldBoy! no encontrado", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -328,9 +329,4 @@ class MainActivity : AppCompatActivity() {
 
     private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
         runOnUiThread {
-            binding.layoutCartInfo.visibility = View.VISIBLE
-            binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.numBanks} bancos × 16 KB = ${info.romSizeKb} KB"
-        }
-    }
-}
+            binding.layoutCartInfo.visibility = Vie
