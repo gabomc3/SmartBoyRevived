@@ -5,14 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
-/**
- * Handles communication with the Hyperkin SmartBoy over USB CDC ACM serial.
- *
- * Protocol: Device continuously sends: nmGAMENAMErb<banks> (e.g. "nmTETRISrb16")
- *  Host sends "sd" to start dumping.
- *  Device replies: "startrom" + <binary ROM data> + "end"
- *  "nr" means no cartridge inserted.
- */
 class SmartBoyDumper(private val port: UsbSerialPort) {
 
     companion object {
@@ -36,66 +28,61 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
         val romSizeKb: Int get() = numBanks * 16
     }
 
-    private val readBuffer = ByteArray(64)
-    private val byteQueue = ArrayDeque<Byte>()
-
-    private fun readByte(): Byte {
-        while (byteQueue.isEmpty()) {
-            val n = port.read(readBuffer, 500)
-            if (n > 0) repeat(n) { i -> byteQueue.addLast(readBuffer[i]) }
-        }
-        return byteQueue.removeFirst()
-    }
-
-    private fun readUntilTag(out: StringBuilder, tags: List<String>): String {
-        val buf = StringBuilder()
-        while (true) {
-            val c = (readByte().toInt() and 0xFF).toChar()
-            buf.append(c)
-            val s = buf.toString()
-            for (tag in tags) {
-                if (s.endsWith(tag)) {
-                    out.append(s.dropLast(tag.length))
-                    return tag
-                }
-            }
-        }
-    }
-
     /**
-     * Bug fix: inner readUntilTag calls consume the next tag (e.g. "nm" after
-     * the bank count). Discarding it causes an infinite loop on "rb" without
-     * ever setting romName. We save it as pendingTag and reuse it next iteration.
+     * Read cartridge info by accumulating raw bytes and searching for the
+     * nm<NAME>rb<BANKS> pattern using simple string indexOf — much more
+     * robust than the character-by-character tag-matching approach that
+     * could get stuck when starting mid-stream.
      */
     suspend fun readCartridgeInfo(onNoCart: () -> Unit): CartridgeInfo =
         withContext(Dispatchers.IO) {
+            val acc = StringBuilder()
+            val tmp = ByteArray(256)
             var romName: String? = null
             var numBanks: Int = -1
-            val stateTags = listOf("nm", "rb", "nr")
-            var pendingTag: String? = null
 
             while (romName == null || numBanks < 1) {
-                val tag = pendingTag ?: run {
-                    val buf = StringBuilder()
-                    readUntilTag(buf, stateTags)
+                val n = port.read(tmp, 2000)
+                if (n > 0) {
+                    for (i in 0 until n) acc.append((tmp[i].toInt() and 0xFF).toChar())
                 }
-                pendingTag = null
 
-                when (tag) {
-                    "nm" -> {
-                        val nameContent = StringBuilder()
-                        val t = readUntilTag(nameContent, stateTags)
-                        romName = nameContent.toString().trim()
-                        pendingTag = t
+                val s = acc.toString()
+
+                // Search for nm<NAME>rb<DIGITS> pattern
+                var from = 0
+                var found = false
+                while (!found) {
+                    val nmIdx = s.indexOf("nm", from)
+                    if (nmIdx < 0) break
+                    val rbIdx = s.indexOf("rb", nmIdx + 2)
+                    if (rbIdx < 0) break
+
+                    val candidateName = s.substring(nmIdx + 2, rbIdx)
+                    if (candidateName.isEmpty()) { from = nmIdx + 1; continue }
+
+                    // Read digits after "rb"
+                    var bankEnd = rbIdx + 2
+                    while (bankEnd < s.length && s[bankEnd].isDigit()) bankEnd++
+
+                    if (bankEnd > rbIdx + 2) {
+                        val banks = s.substring(rbIdx + 2, bankEnd).toIntOrNull() ?: -1
+                        if (banks > 0) {
+                            romName = candidateName.trim()
+                            numBanks = banks
+                            found = true
+                        }
                     }
-                    "rb" -> {
-                        val bankContent = StringBuilder()
-                        val t = readUntilTag(bankContent, stateTags)
-                        numBanks = bankContent.toString().trim().toIntOrNull() ?: -1
-                        pendingTag = t
-                    }
-                    "nr" -> onNoCart()
+                    from = nmIdx + 1
                 }
+
+                // If no name found yet, check for no-cartridge indicator
+                if (!found && s.contains("nr")) {
+                    onNoCart()
+                }
+
+                // Trim accumulator to last 512 chars so it doesn't grow forever
+                if (acc.length > 512) acc.delete(0, acc.length - 512)
             }
 
             CartridgeInfo(romName!!, numBanks)
@@ -106,19 +93,33 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
         onProgress: suspend (Int) -> Unit
     ): ByteArray = withContext(Dispatchers.IO) {
         port.write("sd".toByteArray(Charsets.US_ASCII), WRITE_TIMEOUT_MS)
-        val markerTags = listOf("startrom", "nr")
-        val preBuf = StringBuilder()
-        val marker = readUntilTag(preBuf, markerTags)
-        if (marker == "nr") error("No cartridge inserted when dump started")
+
+        // Wait for "startrom" marker
+        val preamble = StringBuilder()
+        val tmp = ByteArray(256)
+        val deadline = System.currentTimeMillis() + 10_000L
+        var startromFound = false
+        while (!startromFound && System.currentTimeMillis() < deadline) {
+            val n = port.read(tmp, 1000)
+            if (n > 0) {
+                for (i in 0 until n) preamble.append((tmp[i].toInt() and 0xFF).toChar())
+                when {
+                    preamble.contains("startrom") -> startromFound = true
+                    preamble.contains("nr") -> error("No cartridge when dump started")
+                }
+            }
+        }
+        if (!startromFound) error("Timeout waiting for startrom marker")
+
         val romSize = info.romSizeBytes
         val out = ByteArrayOutputStream(romSize)
         var totalRead = 0
         val chunk = ByteArray(4096)
+
         while (totalRead < romSize) {
-            val want = minOf(chunk.size, romSize - totalRead)
             val n = port.read(chunk, READ_TIMEOUT_MS)
             if (n > 0) {
-                val actual = minOf(n, want)
+                val actual = minOf(n, romSize - totalRead)
                 out.write(chunk, 0, actual)
                 totalRead += actual
                 withContext(Dispatchers.Main) {
