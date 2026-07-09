@@ -91,14 +91,27 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
                 if (!found && acc.length > 512) acc.delete(0, acc.length - 512)
             }
 
-            // If the device sends nm/rb/startrom/ROM all in one burst (no "sd" handshake),
-            // "startrom" will already be present in `acc`.  Extract any ROM bytes that
-            // followed it so dumpRom() can use them directly.
+            // Many SmartBoy units stream nm/rb + "startrom" + ROM all at once without
+            // waiting for "sd".  "startrom" may arrive in the same USB packet as nm/rb
+            // (already in `acc`) or a few milliseconds later in a separate packet.
+            // Try for up to 500 ms so that dumpRom() can use Scenario A (no drain,
+            // no "sd"), which guarantees ROM bytes starting at offset 0.
+            if (!acc.contains("startrom")) {
+                val captureEnd = System.currentTimeMillis() + 500L
+                while (System.currentTimeMillis() < captureEnd) {
+                    val n = port.read(tmp, 100)
+                    if (n > 0) {
+                        for (i in 0 until n) acc.append((tmp[i].toInt() and 0xFF).toChar())
+                        if (acc.contains("startrom")) break
+                    }
+                }
+            }
+
             val s = acc.toString()
             val srIdx = s.indexOf("startrom")
             val preRomBytes = if (srIdx >= 0) {
                 val dataStart = srIdx + "startrom".length
-                ByteArray(s.length - dataStart) { i ->
+                ByteArray(maxOf(0, s.length - dataStart)) { i ->
                     (s[dataStart + i].code and 0xFF).toByte()
                 }
             } else ByteArray(0)
@@ -119,18 +132,11 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
             // Write what we already have and read the remainder from USB.
             out.write(info.preRomBytes)
         } else {
-            // ── Scenario B: device waits for "sd" before sending "startrom" + ROM ──
-            // First drain any bytes buffered since readCartridgeInfo() exited.
-            // Without this drain, leftover bytes (nm/rb repetitions or stale ROM data)
-            // could produce a false "startrom" match at a wrong ROM offset,
-            // which is the root cause of the non-deterministic corrupt dumps.
-            val drainBuf = ByteArray(4096)
-            val drainUntil = System.currentTimeMillis() + 300L
-            while (System.currentTimeMillis() < drainUntil) {
-                port.read(drainBuf, 100)   // read and discard
-            }
-
-            // Now send "sd" — all pre-command bytes have been discarded.
+            // ── Scenario B: device needs "sd" before it sends "startrom" + ROM ──
+            // (Fallback — Scenario A should fire for most devices.)
+            // Send "sd" immediately; do NOT drain first.  Draining would discard the
+            // very "startrom" response we are about to wait for (the device answers
+            // in well under 300 ms).
             port.write("sd".toByteArray(Charsets.US_ASCII), WRITE_TIMEOUT_MS)
 
             // Wait for the fresh "startrom" marker.
