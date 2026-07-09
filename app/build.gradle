@@ -11,8 +11,8 @@ android {
         applicationId "com.smartboyrevived"
         minSdk 29
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        versionCode 45
+        versionName "45"
     }
 
     buildTypes {
@@ -33,6 +33,7 @@ android {
 
     buildFeatures {
         viewBinding true
+        buildConfig true
     }
 }
 
