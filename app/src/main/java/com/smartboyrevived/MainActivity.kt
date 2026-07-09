@@ -410,41 +410,50 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun doLaunchMyOldBoy(filePath: String?, mediaUri: Uri, packages: List<String>) {
-        // My OldBoy! requires a direct file:// URI â content:// URIs cause "Failed to load game"
+        // Strategy 1: MediaStore content:// URI â same as what file managers send
+        // My OldBoy! can query DATA column for real path, or stream via ContentResolver
+        for (pkg in packages) {
+            try { grantUriPermission(pkg, mediaUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+            for (mime in listOf("application/octet-stream", "*/*")) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(mediaUri, mime)
+                        setPackage(pkg)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                    return
+                } catch (_: Exception) {}
+            }
+        }
+
+        // Strategy 2: file:// URI with StrictMode bypass
         if (filePath != null) {
             val file = File(filePath)
             if (file.exists()) {
-                val fileUri = Uri.fromFile(file)
                 val savedPolicy = StrictMode.getVmPolicy()
                 StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
                 try {
+                    val fileUri = Uri.fromFile(file)
                     for (pkg in packages) {
-                        try {
-                            startActivity(Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(fileUri, "application/octet-stream")
-                                setPackage(pkg)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            })
-                            return
-                        } catch (_: Exception) {}
+                        for (mime in listOf("application/octet-stream", "*/*")) {
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(fileUri, mime)
+                                    setPackage(pkg)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                })
+                                return
+                            } catch (_: Exception) {}
+                        }
                     }
-                    // Let user choose from installed apps
-                    try {
-                        startActivity(Intent.createChooser(
-                            Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(fileUri, "*/*")
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }, "Abrir ROM con..."
-                        ))
-                        return
-                    } catch (_: Exception) {}
                 } finally {
                     StrictMode.setVmPolicy(savedPolicy)
                 }
             }
         }
 
-        // Fallback: FileProvider content:// URI
+        // Strategy 3: FileProvider content:// URI (cache file)
         val cacheFile = lastRomFile
         if (cacheFile?.exists() == true) {
             val fpUri: Uri? = try {
@@ -469,27 +478,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        Toast.makeText(
-            this,
-            "My OldBoy! no encontrado. Abre el archivo desde Descargas/SmartBoyROMs",
-            Toast.LENGTH_LONG
-        ).show()
-    }
-
-    // -------------------------------------------------------------------------
-    // UI helpers
-    // -------------------------------------------------------------------------
-    private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
-        runOnUiThread {
-            binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.romSizeKb} KB (${info.numBanks} bancos)"
-            binding.layoutCartInfo.visibility = View.VISIBLE
-        }
-    }
-
-    private fun setStatus(msg: String) {
-        runOnUiThread {
-            binding.tvStatus.text = msg
-        }
-    }
-}
+        // Strategy 4: Chooser with MediaStore URI (last resort)
+        try {
+            startActivity(Intent.createChooser(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(mediaUri, "*/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
