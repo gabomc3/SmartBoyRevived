@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
                     if (granted && device != null) {
                         connectToDevice(device)
                     } else {
-                        setStatus("⛔ Permiso USB denegado")
+                        setStatus("â Permiso USB denegado")
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity() {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     if (device?.vendorId == SmartBoyDumper.VENDOR_ID) {
                         closeConnection()
-                        setStatus("⏳ SmartBoy desconectado. Esperando...")
+                        setStatus("â³ SmartBoy desconectado. Esperando...")
                     }
                 }
             }
@@ -146,7 +146,7 @@ class MainActivity : AppCompatActivity() {
                 PendingIntent.FLAG_IMMUTABLE
             )
             usbManager.requestPermission(device, permIntent)
-            setStatus("⏳ Solicitando permiso USB...")
+            setStatus("â³ Solicitando permiso USB...")
         }
     }
 
@@ -158,13 +158,13 @@ class MainActivity : AppCompatActivity() {
             val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
             val driver = drivers.firstOrNull { it.device == device }
                 ?: run {
-                    setStatus("⚠️ Driver USB no encontrado (CDC ACM)")
+                    setStatus("â ï¸ Driver USB no encontrado (CDC ACM)")
                     return
                 }
 
             val connection = usbManager.openDevice(driver.device)
                 ?: run {
-                    setStatus("⚠️ No se pudo abrir el dispositivo USB")
+                    setStatus("â ï¸ No se pudo abrir el dispositivo USB")
                     return
                 }
 
@@ -177,11 +177,11 @@ class MainActivity : AppCompatActivity() {
             serialPort = port
             dumper = SmartBoyDumper(port)
 
-            setStatus("✅ SmartBoy conectado")
+            setStatus("â SmartBoy conectado")
             readCartridgeInfo()
 
         } catch (e: Exception) {
-            setStatus("❌ Error: ${e.message}")
+            setStatus("â Error: ${e.message}")
         }
     }
 
@@ -202,18 +202,18 @@ class MainActivity : AppCompatActivity() {
         val d = dumper ?: return
         lifecycleScope.launch {
             try {
-                setStatus("🔍 Leyendo cartucho...")
+                setStatus("ð Leyendo cartucho...")
                 val info = d.readCartridgeInfo(
                     onNoCart = {
-                        runOnUiThread { setStatus("📭 Inserta un cartucho en el SmartBoy") }
+                        runOnUiThread { setStatus("ð­ Inserta un cartucho en el SmartBoy") }
                     }
                 )
                 cartInfo = info
                 showCartInfo(info)
-                setStatus("✅ Cartucho listo")
+                setStatus("â Cartucho listo")
                 binding.btnDump.isEnabled = true
             } catch (e: Exception) {
-                setStatus("❌ Error leyendo cartucho: ${e.message}")
+                setStatus("â Error leyendo cartucho: ${e.message}")
             }
         }
     }
@@ -232,7 +232,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                setStatus("📥 Volcando ROM...")
+                setStatus("ð¥ Volcando ROM...")
 
                 val romData = d.dumpRom(info) { progress ->
                     binding.progressBar.progress = progress
@@ -267,10 +267,10 @@ class MainActivity : AppCompatActivity() {
                     binding.layoutProgress.visibility = View.GONE
                     binding.btnPlay.visibility = View.VISIBLE
                     binding.btnDump.isEnabled = true
-                    setStatus("✅ ROM guardado: $filename")
+                    setStatus("â ROM guardado: $filename")
                     Toast.makeText(this@MainActivity, "ROM guardado en Descargas", Toast.LENGTH_SHORT).show()
                 } else {
-                    setStatus("❌ Error guardando ROM")
+                    setStatus("â Error guardando ROM")
                     binding.btnDump.isEnabled = true
                 }
 
@@ -278,10 +278,10 @@ class MainActivity : AppCompatActivity() {
                 binding.layoutProgress.visibility = View.GONE
                 binding.btnDump.isEnabled = true
                 val msg = e.message ?: "Error desconocido"
-                setStatus("❌ ${msg.lines().firstOrNull() ?: msg}")
+                setStatus("â ${msg.lines().firstOrNull() ?: msg}")
                 // Show full diagnostic in a dialog so the user can read/copy it
                 AlertDialog.Builder(this@MainActivity)
-                    .setTitle("❌ Error volcando ROM")
+                    .setTitle("â Error volcando ROM")
                     .setMessage(msg)
                     .setPositiveButton("Cerrar", null)
                     .show()
@@ -320,7 +320,7 @@ class MainActivity : AppCompatActivity() {
         }
 
     // -------------------------------------------------------------------------
-    // Launch My OldBoy! — shows diagnostic dialog first
+    // Launch My OldBoy! â shows diagnostic dialog first
     // -------------------------------------------------------------------------
     @Suppress("DEPRECATION")
     private fun openInMyOldBoy() {
@@ -336,12 +336,12 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val diagMsg = withContext(Dispatchers.IO) {
-                if (filePath == null) return@withContext "⚠️ No se encontró ruta del archivo."
+                if (filePath == null) return@withContext "â ï¸ No se encontrÃ³ ruta del archivo."
 
                 val file = File(filePath)
                 val size = file.length()
                 val bytes = try { file.readBytes() } catch (e: Exception) {
-                    return@withContext "Ruta: $filePath\n\n❌ No se pudo leer:\n${e.message}"
+                    return@withContext "Ruta: $filePath\n\nâ No se pudo leer:\n${e.message}"
                 }
 
                 val hex0x000 = bytes.take(8).joinToString(" ") { "%02X".format(it) }
@@ -358,25 +358,47 @@ class MainActivity : AppCompatActivity() {
                 } ?: -1
 
                 val logoStatus = when {
-                    logoAt == 0x104 -> "✅ en 0x104 (correcto)"
+                    logoAt == 0x104 -> "â en 0x104 (correcto)"
                     logoAt > 0x104  -> "en 0x${logoAt.toString(16).uppercase()} (+${logoAt - 0x104} bytes)"
                     logoAt in 1 until 0x104 -> "en 0x${logoAt.toString(16).uppercase()} (faltan ${0x104 - logoAt} bytes)"
-                    else -> "❌ no encontrado"
+                    else -> "â no encontrado"
                 }
 
                 val isPow2 = size > 0 && (size and (size - 1)) == 0L
 
+                val hex0x134 = if (bytes.size > 0x143) {
+                    val hex = bytes.drop(0x134).take(15).joinToString(" ") { "%02X".format(it) }
+                    val ascii = bytes.drop(0x134).take(15).joinToString("") { b ->
+                        val c = b.toInt() and 0xFF; if (c in 0x20..0x7E) c.toChar().toString() else "."
+                    }
+                    "$hex ($ascii)"
+                } else "N/A"
+
+                val headerChk = if (bytes.size > 0x14D) bytes[0x14D].toInt() and 0xFF else -1
+                val expectedChk = if (bytes.size > 0x14C) {
+                    var x = 0
+                    for (i in 0x134..0x14C) { x = x - (bytes[i].toInt() and 0xFF) - 1 }
+                    x and 0xFF
+                } else -1
+                val chkStatus = when {
+                    headerChk < 0 || expectedChk < 0 -> "N/A"
+                    headerChk == expectedChk -> "â 0x${"%02X".format(headerChk)}"
+                    else -> "â 0x${"%02X".format(headerChk)} (esperado 0x${"%02X".format(expectedChk)})"
+                }
+
                 "Ruta: $filePath\n\n" +
-                "Tamaño: $size B (${size / 1024} KB)\n" +
-                "Potencia de 2: ${if (isPow2) "✅" else "❌"}\n" +
-                "Logo Nintendo: $logoStatus\n\n" +
+                "TamaÃ±o: $size B (${size / 1024} KB)\n" +
+                "Potencia de 2: ${if (isPow2) "â" else "â"}\n" +
+                "Logo Nintendo: $logoStatus\n" +
+                "Checksum header: $chkStatus\n\n" +
                 "0x000: $hex0x000\n" +
                 "0x100: $hex0x100\n" +
-                "0x104: $hex0x104 ← logo esperado: CE ED 66 66"
+                "0x104: $hex0x104 â logo esperado: CE ED 66 66\n" +
+                "0x134: $hex0x134 â tÃ­tulo cartucho"
             }
 
             AlertDialog.Builder(this@MainActivity)
-                .setTitle("📁 Diagnóstico ROM")
+                .setTitle("ð DiagnÃ³stico ROM")
                 .setMessage(diagMsg)
                 .setPositiveButton("Abrir My OldBoy!") { _, _ ->
                     doLaunchMyOldBoy(filePath, mediaUri, packages)
@@ -388,6 +410,41 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun doLaunchMyOldBoy(filePath: String?, mediaUri: Uri, packages: List<String>) {
+        // My OldBoy! requires a direct file:// URI â content:// URIs cause "Failed to load game"
+        if (filePath != null) {
+            val file = File(filePath)
+            if (file.exists()) {
+                val fileUri = Uri.fromFile(file)
+                val savedPolicy = StrictMode.getVmPolicy()
+                StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
+                try {
+                    for (pkg in packages) {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(fileUri, "application/octet-stream")
+                                setPackage(pkg)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                            return
+                        } catch (_: Exception) {}
+                    }
+                    // Let user choose from installed apps
+                    try {
+                        startActivity(Intent.createChooser(
+                            Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(fileUri, "*/*")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }, "Abrir ROM con..."
+                        ))
+                        return
+                    } catch (_: Exception) {}
+                } finally {
+                    StrictMode.setVmPolicy(savedPolicy)
+                }
+            }
+        }
+
+        // Fallback: FileProvider content:// URI
         val cacheFile = lastRomFile
         if (cacheFile?.exists() == true) {
             val fpUri: Uri? = try {
@@ -396,6 +453,7 @@ class MainActivity : AppCompatActivity() {
 
             if (fpUri != null) {
                 for (pkg in packages) {
+                    try { grantUriPermission(pkg, fpUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
                     for (mime in listOf("application/octet-stream", "*/*")) {
                         try {
                             startActivity(Intent(Intent.ACTION_VIEW).apply {
@@ -411,52 +469,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        for (pkg in packages) {
-            for (mime in listOf("application/octet-stream", "*/*")) {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(mediaUri, mime)
-                        setPackage(pkg)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    })
-                    return
-                } catch (_: Exception) {}
-            }
-        }
-
-        if (filePath != null) {
-            val fileUri = Uri.fromFile(File(filePath))
-            val savedPolicy = StrictMode.getVmPolicy()
-            StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
-            try {
-                for (pkg in packages) {
-                    for (mime in listOf("application/octet-stream", "*/*")) {
-                        try {
-                            startActivity(Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(fileUri, mime)
-                                setPackage(pkg)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            })
-                            return
-                        } catch (_: Exception) {}
-                    }
-                }
-                try {
-                    startActivity(Intent.createChooser(
-                        Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(fileUri, "*/*")
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }, "Abrir ROM con..."
-                    ))
-                    return
-                } catch (_: Exception) {}
-            } finally {
-                StrictMode.setVmPolicy(savedPolicy)
-            }
-        }
-
-        Toast.makeText(this, "My OldBoy! no encontrado", Toast.LENGTH_LONG).show()
+        Toast.makeText(
+            this,
+            "My OldBoy! no encontrado. Abre el archivo desde Descargas/SmartBoyROMs",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     // -------------------------------------------------------------------------
