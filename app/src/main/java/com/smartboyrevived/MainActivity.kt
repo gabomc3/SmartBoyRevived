@@ -18,6 +18,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
@@ -340,6 +341,9 @@ class MainActivity : AppCompatActivity() {
                 val hex0x100 = if (bytes.size > 0x107)
                     bytes.drop(0x100).take(8).joinToString(" ") { b -> "%02X".format(b) }
                 else "N/A"
+                val hex0x104 = if (bytes.size > 0x10B)
+                    bytes.drop(0x104).take(8).joinToString(" ") { b -> "%02X".format(b) }
+                else "N/A"
 
                 // Search for Nintendo logo signature CE ED 66 66 anywhere in file
                 val logoSig = byteArrayOf(0xCE.toByte(), 0xED.toByte(), 0x66.toByte(), 0x66.toByte())
@@ -361,7 +365,8 @@ class MainActivity : AppCompatActivity() {
                 "Potencia de 2: ${if (isPow2) "✅" else "❌"}\n" +
                 "Logo Nintendo: $logoStatus\n\n" +
                 "0x000: $hex0x000\n" +
-                "0x100: $hex0x100"
+                "0x100: $hex0x100\n" +
+                "0x104: $hex0x104  ← logo esperado: CE ED 66 66"
             }
 
             AlertDialog.Builder(this@MainActivity)
@@ -377,8 +382,32 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun doLaunchMyOldBoy(filePath: String?, mediaUri: Uri, packages: List<String>) {
-        // Try 1: MediaStore content:// URI (works on Android 10+ Scoped Storage)
-        // This is the primary method — file:// fails silently on Android 10+ for Downloads
+        // Try 1: FileProvider URI from cache (standard Android sharing — most compatible with 3rd party apps)
+        // FileProvider gives the receiving app direct read access without needing storage permissions
+        val cacheFile = lastRomFile
+        if (cacheFile?.exists() == true) {
+            val fpUri: Uri? = try {
+                FileProvider.getUriForFile(this, AUTHORITY, cacheFile)
+            } catch (_: Exception) { null }
+
+            if (fpUri != null) {
+                for (pkg in packages) {
+                    for (mime in listOf("application/octet-stream", "*/*")) {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(fpUri, mime)
+                                setPackage(pkg)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                            return
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+        }
+
+        // Try 2: MediaStore content:// URI (Android 10+ Scoped Storage)
         for (pkg in packages) {
             for (mime in listOf("application/octet-stream", "*/*")) {
                 try {
@@ -393,7 +422,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Try 2: file:// URI with StrictMode bypass (legacy fallback)
+        // Try 3: file:// URI with StrictMode bypass (legacy fallback)
         if (filePath != null) {
             val fileUri = Uri.fromFile(File(filePath))
             val savedPolicy = StrictMode.getVmPolicy()
