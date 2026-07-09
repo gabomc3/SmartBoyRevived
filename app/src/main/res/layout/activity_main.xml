@@ -6,15 +6,31 @@
     android:padding="24dp"
     android:background="#121212">
 
-    <TextView
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="🎮 SmartBoy Revived"
-        android:textSize="24sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:paddingBottom="8dp"/>
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🎮 SmartBoy Revived"
+            android:textSize="24sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:gravity="center"/>
+
+        <TextView
+            android:id="@+id/tvVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:text="v?"
+            android:textSize="11sp"
+            android:textColor="#888888"/>
+
+    </RelativeLayout>
 
     <TextView
         android:layout_width="match_parent"
