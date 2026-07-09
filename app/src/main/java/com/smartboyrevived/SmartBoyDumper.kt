@@ -85,17 +85,9 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
                     onNoCart()
                 }
 
-                // Only truncate while still searching — once nm/rb is found we
-                // must NOT truncate: those accumulated bytes may include "startrom"
-                // and the first ROM bytes, which we need to hand off to dumpRom().
                 if (!found && acc.length > 512) acc.delete(0, acc.length - 512)
             }
 
-            // Many SmartBoy units stream nm/rb + "startrom" + ROM all at once without
-            // waiting for "sd".  "startrom" may arrive in the same USB packet as nm/rb
-            // (already in `acc`) or a few milliseconds later in a separate packet.
-            // Try for up to 500 ms so that dumpRom() can use Scenario A (no drain,
-            // no "sd"), which guarantees ROM bytes starting at offset 0.
             if (!acc.contains("startrom")) {
                 val captureEnd = System.currentTimeMillis() + 500L
                 while (System.currentTimeMillis() < captureEnd) {
@@ -126,46 +118,68 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
         val romSize = info.romSizeBytes
         val out = ByteArrayOutputStream(romSize)
 
-        if (info.preRomBytes.isNotEmpty()) {
-            // ── Scenario A: device already sent "startrom" + ROM alongside nm/rb ──
-            // The device does not use a "sd" handshake; it streams everything at once.
-            // Write what we already have and read the remainder from USB.
-            out.write(info.preRomBytes)
-        } else {
-            // ── Scenario B: device needs "sd" before it sends "startrom" + ROM ──
-            // (Fallback — Scenario A should fire for most devices.)
-            // Send "sd" immediately; do NOT drain first.  Draining would discard the
-            // very "startrom" response we are about to wait for (the device answers
-            // in well under 300 ms).
-            port.write("sd".toByteArray(Charsets.US_ASCII), WRITE_TIMEOUT_MS)
+        // Send "sd" to trigger/re-trigger the dump cycle.
+        port.write("sd".toByteArray(Charsets.US_ASCII), WRITE_TIMEOUT_MS)
 
-            // Wait for the fresh "startrom" marker.
-            val preamble = StringBuilder()
-            val tmp = ByteArray(256)
-            val deadline = System.currentTimeMillis() + 10_000L
-            var startromFound = false
-            while (!startromFound && System.currentTimeMillis() < deadline) {
-                val n = port.read(tmp, 1000)
-                if (n > 0) {
-                    for (i in 0 until n) preamble.append((tmp[i].toInt() and 0xFF).toChar())
-                    when {
-                        preamble.contains("startrom") -> startromFound = true
-                        preamble.contains("nr") -> error("No cartridge when dump started")
-                    }
+        // Read the USB stream looking for a "startrom" marker whose ROM data
+        // passes the Nintendo logo check (CE ED 66 66 at offset 0x104).
+        //
+        // WHY: the device may be mid-cycle when we start reading, so the first
+        // bytes could be ROM data from some arbitrary offset, followed eventually
+        // by "startrom" at the start of the next (or current) cycle.  We must
+        // not trust a "startrom" marker blindly — we validate by checking the
+        // logo bytes before committing.  Without this, every dump starts at a
+        // random byte, producing corrupt output each time.
+        //
+        // Timeout: 120 s covers a full 1 MB cycle at 115 200 baud (~91 s) plus margin.
+        val stream = StringBuilder()
+        val tmp = ByteArray(256)
+        val deadline = System.currentTimeMillis() + 120_000L
+        var romStart = -1   // index in `stream` where ROM byte 0 begins
+        var searchFrom = 0  // avoid re-scanning the same positions
+
+        while (romStart < 0) {
+            if (System.currentTimeMillis() > deadline) error("Timeout: valid ROM start not found")
+
+            val n = port.read(tmp, 2000)
+            if (n > 0) {
+                for (i in 0 until n) stream.append((tmp[i].toInt() and 0xFF).toChar())
+            }
+
+            if (stream.contains("nr")) error("No cartridge detected")
+
+            // Scan for every "startrom" occurrence since last check.
+            while (true) {
+                val srIdx = stream.indexOf("startrom", searchFrom)
+                if (srIdx < 0) break
+
+                val dataStart = srIdx + "startrom".length
+                // Need at least 0x108 ROM bytes to read the logo at 0x104-0x107.
+                if (stream.length < dataStart + 0x108) break
+
+                val b104 = stream[dataStart + 0x104].code and 0xFF
+                val b105 = stream[dataStart + 0x105].code and 0xFF
+                val b106 = stream[dataStart + 0x106].code and 0xFF
+                val b107 = stream[dataStart + 0x107].code and 0xFF
+
+                if (b104 == 0xCE && b105 == 0xED && b106 == 0x66 && b107 == 0x66) {
+                    romStart = dataStart  // confirmed: ROM byte 0 is here
+                    break
                 }
-            }
-            if (!startromFound) error("Timeout waiting for startrom marker")
 
-            // Any bytes that arrived in the same read as "startrom" but after it
-            // are the first ROM bytes — write them before the main read loop.
-            val startromEnd = preamble.indexOf("startrom") + "startrom".length
-            for (i in startromEnd until preamble.length) {
-                if (out.size() >= romSize) break
-                out.write(preamble[i].code and 0xFF)
+                // Logo mismatch - this "startrom" is mid-cycle; skip it.
+                searchFrom = srIdx + 1
             }
+            if (romStart < 0) searchFrom = maxOf(searchFrom, stream.length - 8)
         }
 
-        // Read the rest of the ROM from USB.
+        // Write the ROM bytes already in the stream buffer.
+        for (i in romStart until stream.length) {
+            if (out.size() >= romSize) break
+            out.write(stream[i].code and 0xFF)
+        }
+
+        // Read the remainder directly from USB.
         var totalRead = out.size()
         val chunk = ByteArray(4096)
         while (totalRead < romSize) {
@@ -174,9 +188,7 @@ class SmartBoyDumper(private val port: UsbSerialPort) {
                 val actual = minOf(n, romSize - totalRead)
                 out.write(chunk, 0, actual)
                 totalRead += actual
-                withContext(Dispatchers.Main) {
-                    onProgress(totalRead * 100 / romSize)
-                }
+                withContext(Dispatchers.Main) { onProgress(totalRead * 100 / romSize) }
             }
         }
         out.toByteArray()
