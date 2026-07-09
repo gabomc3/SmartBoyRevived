@@ -83,6 +83,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Show build version in the badge (top-right corner of the title)
+        binding.tvVersion.text = "v${BuildConfig.VERSION_NAME}"
+
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
 
         val filter = IntentFilter().apply {
@@ -242,7 +245,6 @@ class MainActivity : AppCompatActivity() {
                 if (uri != null) {
                     lastRomUri = uri
 
-                    // Get actual filesystem path and copy to cache
                     val romCacheDir = File(cacheDir, "SmartBoyROMs").also { it.mkdirs() }
                     val cacheRomFile = File(romCacheDir, filename)
                     withContext(Dispatchers.IO) {
@@ -273,9 +275,16 @@ class MainActivity : AppCompatActivity() {
                 }
 
             } catch (e: Exception) {
-                setStatus("❌ Error volcando ROM: ${e.message}")
                 binding.layoutProgress.visibility = View.GONE
                 binding.btnDump.isEnabled = true
+                val msg = e.message ?: "Error desconocido"
+                setStatus("❌ ${msg.lines().firstOrNull() ?: msg}")
+                // Show full diagnostic in a dialog so the user can read/copy it
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("❌ Error volcando ROM")
+                    .setMessage(msg)
+                    .setPositiveButton("Cerrar", null)
+                    .show()
             }
         }
     }
@@ -318,7 +327,6 @@ class MainActivity : AppCompatActivity() {
         val mediaUri = lastRomUri ?: return
         val packages = listOf("com.fastemulator.gbc", "com.fastemulator.gbcfree")
 
-        // Prefer real MediaStore path; fall back to computed Downloads path
         val filePath = lastRomFilePath ?: lastRomFile?.name?.let {
             File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
@@ -326,7 +334,6 @@ class MainActivity : AppCompatActivity() {
             ).absolutePath
         }
 
-        // Read diagnostic info on IO thread, then show dialog on Main
         lifecycleScope.launch {
             val diagMsg = withContext(Dispatchers.IO) {
                 if (filePath == null) return@withContext "⚠️ No se encontró ruta del archivo."
@@ -334,18 +341,17 @@ class MainActivity : AppCompatActivity() {
                 val file = File(filePath)
                 val size = file.length()
                 val bytes = try { file.readBytes() } catch (e: Exception) {
-                    return@withContext "Ruta: $filePath\n\n❌ No se pudo leer el archivo:\n${e.message}"
+                    return@withContext "Ruta: $filePath\n\n❌ No se pudo leer:\n${e.message}"
                 }
 
-                val hex0x000 = bytes.take(8).joinToString(" ") { b -> "%02X".format(b) }
+                val hex0x000 = bytes.take(8).joinToString(" ") { "%02X".format(it) }
                 val hex0x100 = if (bytes.size > 0x107)
-                    bytes.drop(0x100).take(8).joinToString(" ") { b -> "%02X".format(b) }
+                    bytes.drop(0x100).take(8).joinToString(" ") { "%02X".format(it) }
                 else "N/A"
                 val hex0x104 = if (bytes.size > 0x10B)
-                    bytes.drop(0x104).take(8).joinToString(" ") { b -> "%02X".format(b) }
+                    bytes.drop(0x104).take(8).joinToString(" ") { "%02X".format(it) }
                 else "N/A"
 
-                // Search for Nintendo logo signature CE ED 66 66 anywhere in file
                 val logoSig = byteArrayOf(0xCE.toByte(), 0xED.toByte(), 0x66.toByte(), 0x66.toByte())
                 val logoAt = (0 until bytes.size - 4).firstOrNull { i ->
                     logoSig.indices.all { j -> bytes[i + j] == logoSig[j] }
@@ -353,20 +359,20 @@ class MainActivity : AppCompatActivity() {
 
                 val logoStatus = when {
                     logoAt == 0x104 -> "✅ en 0x104 (correcto)"
-                    logoAt > 0x104 -> "en 0x${logoAt.toString(16).uppercase()} (+${logoAt - 0x104} bytes de sobra)"
+                    logoAt > 0x104  -> "en 0x${logoAt.toString(16).uppercase()} (+${logoAt - 0x104} bytes)"
                     logoAt in 1 until 0x104 -> "en 0x${logoAt.toString(16).uppercase()} (faltan ${0x104 - logoAt} bytes)"
-                    else -> "❌ no encontrado en el archivo"
+                    else -> "❌ no encontrado"
                 }
 
                 val isPow2 = size > 0 && (size and (size - 1)) == 0L
 
                 "Ruta: $filePath\n\n" +
-                "Tamaño: $size B  (${size / 1024} KB)\n" +
+                "Tamaño: $size B (${size / 1024} KB)\n" +
                 "Potencia de 2: ${if (isPow2) "✅" else "❌"}\n" +
                 "Logo Nintendo: $logoStatus\n\n" +
                 "0x000: $hex0x000\n" +
                 "0x100: $hex0x100\n" +
-                "0x104: $hex0x104  ← logo esperado: CE ED 66 66"
+                "0x104: $hex0x104 ← logo esperado: CE ED 66 66"
             }
 
             AlertDialog.Builder(this@MainActivity)
@@ -382,8 +388,6 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun doLaunchMyOldBoy(filePath: String?, mediaUri: Uri, packages: List<String>) {
-        // Try 1: FileProvider URI from cache (standard Android sharing — most compatible with 3rd party apps)
-        // FileProvider gives the receiving app direct read access without needing storage permissions
         val cacheFile = lastRomFile
         if (cacheFile?.exists() == true) {
             val fpUri: Uri? = try {
@@ -407,7 +411,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Try 2: MediaStore content:// URI (Android 10+ Scoped Storage)
         for (pkg in packages) {
             for (mime in listOf("application/octet-stream", "*/*")) {
                 try {
@@ -422,7 +425,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Try 3: file:// URI with StrictMode bypass (legacy fallback)
         if (filePath != null) {
             val fileUri = Uri.fromFile(File(filePath))
             val savedPolicy = StrictMode.getVmPolicy()
@@ -440,7 +442,6 @@ class MainActivity : AppCompatActivity() {
                         } catch (_: Exception) {}
                     }
                 }
-                // No package matched — show system chooser with file://
                 try {
                     startActivity(Intent.createChooser(
                         Intent(Intent.ACTION_VIEW).apply {
@@ -464,7 +465,7 @@ class MainActivity : AppCompatActivity() {
     private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
         runOnUiThread {
             binding.tvRomName.text = info.name
-            binding.tvRomSize.text = "${info.romSizeKb} KB  (${info.numBanks} bancos)"
+            binding.tvRomSize.text = "${info.romSizeKb} KB (${info.numBanks} bancos)"
             binding.layoutCartInfo.visibility = View.VISIBLE
         }
     }
