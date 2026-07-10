@@ -485,3 +485,32 @@ class MainActivity : AppCompatActivity() {
                     setDataAndType(mediaUri, "*/*")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }, "Abrir ROM con..."
+            ))
+            return
+        } catch (_: Exception) {}
+
+        Toast.makeText(
+            this,
+            "My OldBoy! no encontrado. Abre el archivo desde Descargas/SmartBoyROMs",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    // -------------------------------------------------------------------------
+    // UI helpers
+    // -------------------------------------------------------------------------
+    private fun showCartInfo(info: SmartBoyDumper.CartridgeInfo) {
+        runOnUiThread {
+            binding.tvRomName.text = info.name
+            binding.tvRomSize.text = "${info.romSizeKb} KB (${info.numBanks} bancos)"
+            binding.layoutCartInfo.visibility = View.VISIBLE
+        }
+    }
+
+    private fun setStatus(msg: String) {
+        runOnUiThread {
+            binding.tvStatus.text = msg
+        }
+    }
+}
